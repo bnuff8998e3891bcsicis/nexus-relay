@@ -137,6 +137,24 @@ function wake(r) {
 // ------------------------------------------------------------------
 const STALKER_UA = 'Mozilla/5.0 (QtEmbedded; U; Linux; C) MAG200 stbapp ver: 2 rev: 250 Safari/533.3';
 
+// ------------------------------------------------------------------
+// Rate limiting per IP (in-memory, per instance).
+// ------------------------------------------------------------------
+const RELAY_KEY = process.env.RELAY_KEY || '';
+const ipBuckets = new Map();
+function rateLimited(key, limit, windowMs) {
+  if (ipBuckets.size > 10000) ipBuckets.clear();
+  const now = Date.now();
+  const bucket = ipBuckets.get(key);
+  if (!bucket || now - bucket.start > windowMs) {
+    ipBuckets.set(key, { start: now, count: 1 });
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > limit;
+}
+
+
 function stalkerEndpoints(portal) {
   const u = new URL(portal);
   const origin = u.origin;
@@ -245,11 +263,28 @@ const server = http.createServer((req, res) => {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, HEAD');
-  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Range');
+  res.setHeader('Access-Control-Allow-Headers', 'Authorization, Range, x-relay-key');
   if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
 
   const parsed = new URL(req.url, `http://${req.headers.host}`);
   const path = parsed.pathname;
+
+  // Basic per-IP burst protection (the relay is public for the app's streams).
+  const ip = String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'ip').split(',')[0].trim();
+  if (!rateLimited(`proxy:${ip}`, 240, 60_000)) { /* ok */ } else {
+    res.writeHead(429, { 'Content-Type': 'application/json', 'Retry-After': '30' });
+    res.end(JSON.stringify({ ok: false, error: 'troppe richieste' }));
+    return;
+  }
+
+  // Optional shared key for the panel-only /stalker endpoint.
+  if (path === '/stalker' && RELAY_KEY) {
+    if (String(req.headers['x-relay-key'] || '') !== RELAY_KEY) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'chiave relay non valida' }));
+      return;
+    }
+  }
 
   // Health check
   if (path === '/health') {
