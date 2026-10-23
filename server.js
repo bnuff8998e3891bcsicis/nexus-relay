@@ -161,9 +161,10 @@ function stalkerEndpoints(portal) {
   const p = u.pathname.replace(/\/+$/, '');
   const base = p.replace(/\/c$/i, '');
   return [...new Set([
+    `${origin}${p}/portal.php`,
+    `${origin}${p}/server/load.php`,
     `${origin}${base}/server/load.php`,
     `${origin}${base}/portal.php`,
-    `${origin}${p}/portal.php`,
     `${origin}/server/load.php`,
     `${origin}/stalker_portal/server/load.php`,
     `${origin}/c/portal.php`,
