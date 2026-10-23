@@ -250,37 +250,44 @@ async function stalkerChannels(portal, mac, genre = '*') {
 
   const channels = [];
   const seen = new Set();
-  const maxPages = genre === '*' ? 80 : 400;
-  for (let page = 1; page <= maxPages; page += 1) {
-    const payload = await stalkerFetch(endpoint, portal, mac, token, [
-      ['type', 'itv'], ['action', 'get_ordered_list'], ['genre', genre],
-      ['p', String(page)], ['JsHttpRequest', '1-xml'],
-    ]);
-    const data = payload?.js?.data ?? payload?.js;
-    if (!Array.isArray(data) || data.length === 0) break;
-    let added = 0;
-    for (const item of data) {
-      const name = item?.name ?? item?.title;
-      const cmd = String(item?.cmd ?? item?.stream_url ?? '');
-      if (!name || !cmd) continue;
-      const id = String(item?.id ?? item?.ch_id ?? name);
-      if (seen.has(`${id}|${cmd}`)) continue;
-      seen.add(`${id}|${cmd}`);
-      added += 1;
-      const genreId = item?.tv_genre_id ?? item?.genre_id;
-      channels.push({
-        id,
-        name: String(name),
-        genre: String(
-          item?.tv_genre_title ??
-            item?.genre_title ??
-            (genreId != null ? genres.get(String(genreId)) : null) ??
-            'Stalker',
-        ),
-        cmd,
-      });
+  const targets = String(genre)
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const genreTargets = targets.length > 0 ? targets : ['*'];
+  for (const target of genreTargets) {
+    const maxPages = target === '*' ? 80 : 400;
+    for (let page = 1; page <= maxPages; page += 1) {
+      const payload = await stalkerFetch(endpoint, portal, mac, token, [
+        ['type', 'itv'], ['action', 'get_ordered_list'], ['genre', target],
+        ['p', String(page)], ['JsHttpRequest', '1-xml'],
+      ]);
+      const data = payload?.js?.data ?? payload?.js;
+      if (!Array.isArray(data) || data.length === 0) break;
+      let added = 0;
+      for (const item of data) {
+        const name = item?.name ?? item?.title;
+        const cmd = String(item?.cmd ?? item?.stream_url ?? '');
+        if (!name || !cmd) continue;
+        const id = String(item?.id ?? item?.ch_id ?? name);
+        if (seen.has(`${id}|${cmd}`)) continue;
+        seen.add(`${id}|${cmd}`);
+        added += 1;
+        const genreId = item?.tv_genre_id ?? item?.genre_id;
+        channels.push({
+          id,
+          name: String(name),
+          genre: String(
+            item?.tv_genre_title ??
+              item?.genre_title ??
+              (genreId != null ? genres.get(String(genreId)) : null) ??
+              'Stalker',
+          ),
+          cmd,
+        });
+      }
+      if (added === 0) break;
     }
-    if (added === 0) break;
   }
 
   // Some portals return placeholder "localhost/ch/ID_" cmds: resolve them via
