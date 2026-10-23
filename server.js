@@ -210,7 +210,21 @@ async function stalkerHandshake(portal, mac) {
   throw lastError || new Error('handshake failed');
 }
 
-async function stalkerChannels(portal, mac) {
+async function stalkerGenres(portal, mac) {
+  const { endpoint, token } = await stalkerHandshake(portal, mac);
+  const gp = await stalkerFetch(endpoint, portal, mac, token, [
+    ['type', 'itv'], ['action', 'get_genres'], ['JsHttpRequest', '1-xml'],
+  ]);
+  const out = [];
+  if (Array.isArray(gp?.js)) {
+    for (const g of gp.js) {
+      if (g.id != null && g.title) out.push({ id: String(g.id), title: String(g.title) });
+    }
+  }
+  return out;
+}
+
+async function stalkerChannels(portal, mac, genre = '*') {
   const { endpoint, token } = await stalkerHandshake(portal, mac);
 
   const genres = new Map();
@@ -225,9 +239,10 @@ async function stalkerChannels(portal, mac) {
 
   const channels = [];
   const seen = new Set();
-  for (let page = 1; page <= 80; page += 1) {
+  const maxPages = genre === '*' ? 80 : 400;
+  for (let page = 1; page <= maxPages; page += 1) {
     const payload = await stalkerFetch(endpoint, portal, mac, token, [
-      ['type', 'itv'], ['action', 'get_ordered_list'], ['genre', '*'],
+      ['type', 'itv'], ['action', 'get_ordered_list'], ['genre', genre],
       ['p', String(page)], ['JsHttpRequest', '1-xml'],
     ]);
     const data = payload?.js?.data ?? payload?.js;
@@ -308,8 +323,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Stalker -> lista canali per il pannello Nexus
-  if (path === '/stalker') {
+  // Stalker -> elenco generi (per filtrare, es. solo Italia)
+  if (path === '/stalker/genres') {
     const portal = (parsed.searchParams.get('portal') || '').trim();
     const mac = (parsed.searchParams.get('mac') || '').trim();
     if (!portal || !mac) {
@@ -317,7 +332,29 @@ const server = http.createServer((req, res) => {
       res.end(JSON.stringify({ ok: false, error: 'portal e mac obbligatori' }));
       return;
     }
-    stalkerChannels(portal, mac)
+    stalkerGenres(portal, mac)
+      .then((genres) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, genres }));
+      })
+      .catch((error) => {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: error.message || String(error) }));
+      });
+    return;
+  }
+
+  // Stalker -> lista canali per il pannello Nexus (?genre=<id> per filtrare)
+  if (path === '/stalker') {
+    const portal = (parsed.searchParams.get('portal') || '').trim();
+    const mac = (parsed.searchParams.get('mac') || '').trim();
+    const genre = (parsed.searchParams.get('genre') || '*').trim() || '*';
+    if (!portal || !mac) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'portal e mac obbligatori' }));
+      return;
+    }
+    stalkerChannels(portal, mac, genre)
       .then((channels) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, channels }));
