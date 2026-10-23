@@ -224,6 +224,17 @@ async function stalkerGenres(portal, mac) {
   return out;
 }
 
+async function resolveStalkerLink(endpoint, portal, mac, token, cmd) {
+  const payload = await stalkerFetch(endpoint, portal, mac, token, [
+    ['type', 'itv'], ['action', 'create_link'], ['cmd', cmd],
+    ['series', ''], ['forced_storage', ''], ['disable_ad', '0'], ['download', '0'],
+    ['JsHttpRequest', '1-xml'],
+  ]);
+  const raw = payload?.js?.cmd ?? payload?.js?.stream_url;
+  if (!raw) return null;
+  return String(raw).replace(/^ffmpeg\s+/i, '').trim();
+}
+
 async function stalkerChannels(portal, mac, genre = '*') {
   const { endpoint, token } = await stalkerHandshake(portal, mac);
 
@@ -271,6 +282,24 @@ async function stalkerChannels(portal, mac, genre = '*') {
     }
     if (added === 0) break;
   }
+
+  // Some portals return placeholder "localhost/ch/ID_" cmds: resolve them via
+  // create_link so the client gets a real, playable URL.
+  const pending = channels.filter((c) => /localhost/i.test(c.cmd));
+  for (let i = 0; i < pending.length; i += 5) {
+    const batch = pending.slice(i, i + 5);
+    await Promise.all(
+      batch.map(async (channel) => {
+        try {
+          const real = await resolveStalkerLink(endpoint, portal, mac, token, channel.cmd);
+          if (real) channel.cmd = real;
+        } catch (error) {
+          /* keep the placeholder */
+        }
+      }),
+    );
+  }
+
   return channels;
 }
 
