@@ -179,15 +179,23 @@ async function stalkerFetch(endpoint, portal, mac, token, params) {
     referer: `${portal.replace(/\/+$/, '')}/`,
   };
   if (token) headers.authorization = `Bearer ${token}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
-  try {
-    const response = await fetch(`${endpoint}?${q}`, { headers, signal: controller.signal });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.json();
-  } finally {
-    clearTimeout(timer);
+
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`${endpoint}?${q}`, { headers, signal: controller.signal });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return await response.json();
+    } catch (error) {
+      lastError = error;
+      if (attempt < 3) await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  throw lastError || new Error('fetch failed');
 }
 
 async function stalkerHandshake(portal, mac) {
