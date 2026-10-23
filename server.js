@@ -235,6 +235,14 @@ async function resolveStalkerLink(endpoint, portal, mac, token, cmd) {
   return String(raw).replace(/^ffmpeg\s+/i, '').trim();
 }
 
+/** Resolves one channel command to a fresh, playable URL (create_link). */
+async function stalkerResolve(portal, mac, cmd) {
+  const { endpoint, token } = await stalkerHandshake(portal, mac);
+  const real = await resolveStalkerLink(endpoint, portal, mac, token, cmd);
+  if (!real) throw new Error('create_link non ha restituito un URL');
+  return real;
+}
+
 async function stalkerChannels(portal, mac, genre = '*') {
   const { endpoint, token } = await stalkerHandshake(portal, mac);
 
@@ -356,6 +364,28 @@ const server = http.createServer((req, res) => {
       uptime: Math.round((Date.now() - startedAt) / 1000),
       mem: Math.round(process.memoryUsage().rss / 1024 / 1024),
     }));
+    return;
+  }
+
+  // Stalker -> risolve un singolo canale (create_link) al momento della visione
+  if (path === '/stalker/link') {
+    const portal = (parsed.searchParams.get('portal') || '').trim();
+    const mac = (parsed.searchParams.get('mac') || '').trim();
+    const cmd = (parsed.searchParams.get('cmd') || '').trim();
+    if (!portal || !mac || !cmd) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'portal, mac e cmd obbligatori' }));
+      return;
+    }
+    stalkerResolve(portal, mac, cmd)
+      .then((url) => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, url }));
+      })
+      .catch((error) => {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: error.message || String(error) }));
+      });
     return;
   }
 
