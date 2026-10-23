@@ -264,7 +264,7 @@ async function stalkerChannels(portal, mac, genre = '*') {
     .filter(Boolean);
   const genreTargets = targets.length > 0 ? targets : ['*'];
   for (const target of genreTargets) {
-    const maxPages = target === '*' ? 80 : 400;
+    const maxPages = target === '*' ? 300 : 400;
     for (let page = 1; page <= maxPages; page += 1) {
       const payload = await stalkerFetch(endpoint, portal, mac, token, [
         ['type', 'itv'], ['action', 'get_ordered_list'], ['genre', target],
