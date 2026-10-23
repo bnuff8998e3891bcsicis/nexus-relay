@@ -218,8 +218,22 @@ async function stalkerHandshake(portal, mac) {
   throw lastError || new Error('handshake failed');
 }
 
-async function stalkerGenres(portal, mac) {
+const stalkerSessions = new Map();
+const STALKER_SESSION_MS = 10 * 60 * 1000;
+
+/** Reuses the handshake token so the portal is not handshaked on every play. */
+async function stalkerSession(portal, mac) {
+  const key = `${portal}|${mac}`;
+  const cached = stalkerSessions.get(key);
+  if (cached && Date.now() - cached.ts < STALKER_SESSION_MS) return cached;
   const { endpoint, token } = await stalkerHandshake(portal, mac);
+  const session = { endpoint, token, ts: Date.now() };
+  stalkerSessions.set(key, session);
+  return session;
+}
+
+async function stalkerGenres(portal, mac) {
+  const { endpoint, token } = await stalkerSession(portal, mac);
   const gp = await stalkerFetch(endpoint, portal, mac, token, [
     ['type', 'itv'], ['action', 'get_genres'], ['JsHttpRequest', '1-xml'],
   ]);
@@ -245,14 +259,22 @@ async function resolveStalkerLink(endpoint, portal, mac, token, cmd) {
 
 /** Resolves one channel command to a fresh, playable URL (create_link). */
 async function stalkerResolve(portal, mac, cmd) {
-  const { endpoint, token } = await stalkerHandshake(portal, mac);
-  const real = await resolveStalkerLink(endpoint, portal, mac, token, cmd);
-  if (!real) throw new Error('create_link non ha restituito un URL');
-  return real;
+  let session = await stalkerSession(portal, mac);
+  try {
+    const real = await resolveStalkerLink(session.endpoint, portal, mac, session.token, cmd);
+    if (!real) throw new Error('create_link non ha restituito un URL');
+    return real;
+  } catch (error) {
+    stalkerSessions.delete(`${portal}|${mac}`);
+    session = await stalkerSession(portal, mac);
+    const real = await resolveStalkerLink(session.endpoint, portal, mac, session.token, cmd);
+    if (!real) throw error;
+    return real;
+  }
 }
 
 async function stalkerChannels(portal, mac, genre = '*') {
-  const { endpoint, token } = await stalkerHandshake(portal, mac);
+  const { endpoint, token } = await stalkerSession(portal, mac);
 
   const genres = new Map();
   try {
