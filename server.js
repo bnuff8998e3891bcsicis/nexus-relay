@@ -298,22 +298,6 @@ async function stalkerChannels(portal, mac, genre = '*') {
     }
   }
 
-  // Some portals return placeholder "localhost/ch/ID_" cmds: resolve them via
-  // create_link so the client gets a real, playable URL.
-  const pending = channels.filter((c) => /localhost/i.test(c.cmd));
-  for (let i = 0; i < pending.length; i += 5) {
-    const batch = pending.slice(i, i + 5);
-    await Promise.all(
-      batch.map(async (channel) => {
-        try {
-          const real = await resolveStalkerLink(endpoint, portal, mac, token, channel.cmd);
-          if (real) channel.cmd = real;
-        } catch (error) {
-          /* keep the placeholder */
-        }
-      }),
-    );
-  }
 
   return channels;
 }
